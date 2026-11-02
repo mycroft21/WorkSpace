@@ -148,7 +148,7 @@ textarea{width:100%;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;border:1
       <h2>조작</h2>
       드래그 이동 · 모서리 핸들 크기 조절 · 위쪽 원형 핸들 회전(15° 단위)<br>
       <code>←↑→↓</code> 미세 이동(스냅 단위, <code>Shift</code> ×10) · <code>R</code> 90° 회전 · <code>Delete</code> 삭제 · <code>Ctrl+D</code> 복제 · <code>Ctrl+Z</code>/<code>Y</code> 취소/재실행<br>
-      빈 곳 드래그 화면 이동 · 휠 확대/축소 · <code>Esc</code> 선택 해제
+      빈 곳 드래그 화면 이동 · 휠 확대/축소 · <code>Esc</code> 선택 해제<br>🔒 고정 가구는 선택만 되고 움직이지 않음 · 주황 점선은 문 바깥쪽 통행 공간
     </div>
   </div>
 
@@ -179,8 +179,16 @@ textarea{width:100%;font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;border:1
             <div class="field"><span>X 중심 (mm)</span><input type="number" id="pX" step="10"></div>
             <div class="field"><span>Y 중심 (mm)</span><input type="number" id="pY" step="10"></div>
             <div class="field"><span>회전 (°)</span><input type="number" id="pRot" step="15"></div>
-            <div class="field"><span>여유 공간 (mm)</span><input type="number" id="pClear" step="50" min="0"></div>
+            <div class="field"><span>&nbsp;</span><label class="inline"><input type="checkbox" id="pLocked"> 위치 고정 (붙박이·냉장고 등)</label></div>
           </div>
+          <div style="margin-top:8px;font-size:12px;color:var(--muted)">여유 공간 (mm, 0이면 검사 안 함) — 앞면은 가구의 짙은 선 쪽</div>
+          <div class="grid2" style="margin-top:4px">
+            <div class="field"><span>앞</span><input type="number" id="pClFront" step="50" min="0"></div>
+            <div class="field"><span>뒤</span><input type="number" id="pClBack" step="50" min="0"></div>
+            <div class="field"><span>왼쪽</span><input type="number" id="pClLeft" step="50" min="0"></div>
+            <div class="field"><span>오른쪽</span><input type="number" id="pClRight" step="50" min="0"></div>
+          </div>
+          <label class="inline" style="margin-top:6px"><input type="checkbox" id="pWallCheck"> 여유 공간이 벽에 막히면 경고</label>
           <div class="row">
             <button id="pRotL" title="반시계 15°">↺15°</button>
             <button id="pRotR" title="시계 15°">↻15°</button>
@@ -281,15 +289,16 @@ const DEFAULT_STRUCT = {
   doors: [
     {id:'d_bed3',  room:'r_bed3',  side:'top',    offset:1870, width:700, hinge:'end',   swing:'in'},
     {id:'d_bed2',  room:'r_bed2',  side:'top',    offset:1150, width:700, hinge:'end',   swing:'in'},
-    {id:'d_bed1',  room:'r_bed1',  side:'left',   offset:150,  width:800, hinge:'start', swing:'in'},
+    {id:'d_bed1',  room:'r_bed1',  side:'left',   offset:60,   width:800, hinge:'start', swing:'in'},
     {id:'d_bath1', room:'r_bath1', side:'right',  offset:1920, width:640, hinge:'end',   swing:'in'},
     {id:'d_bath2', room:'r_bath2', side:'left',   offset:1690, width:600, hinge:'end',   swing:'in'},
-    {id:'d_dress', room:'r_dress', side:'bottom', offset:320,  width:700, hinge:'start', swing:'in'},
+    {id:'d_dress', room:'r_dress', side:'bottom', offset:200,  width:800, hinge:'start', swing:'in'},
     {id:'d_util',  room:'r_util',  side:'right',  offset:220,  width:700, hinge:'start', swing:'in'},
-    {id:'d_pantry',room:'r_pantry',side:'bottom', offset:270,  width:650, hinge:'start', swing:'in'},
+    {id:'d_pantry',room:'r_pantry',side:'bottom', offset:380,  width:850, hinge:'start', swing:'in'},
     {id:'d_entry', room:'r_entry', side:'top',    offset:870,  width:800, hinge:'end',   swing:'in'},
-    {id:'d_ac',    room:'r_ac',    side:'left',   offset:200,  width:700, hinge:'start', swing:'in'}
+    {id:'d_ac',    room:'r_ac',    side:'left',   offset:100,  width:800, hinge:'start', swing:'in', approach:0}
   ],
+  // approach: 문 바깥쪽 통행 공간 깊이(mm). 생략하면 600. 실외기실처럼 옆으로 드나드는 문은 0
   windows: [
     {room:'r_bed3', side:'bottom', offset:300, width:2000},
     {room:'r_bed2', side:'bottom', offset:250, width:1500},
@@ -302,23 +311,28 @@ const DEFAULT_STRUCT = {
   ],
   // 고정 설비: 이동 불가, 충돌 판정에는 포함
   fixtures: [
-    {name:'싱크대/조리대', x:5580, y:290, w:2370, h:600},
+    {name:'싱크대/조리대', x:5580, y:290, w:2320, h:600},
     {name:'현관창고', x:2900, y:2680, w:810, h:900}
   ]
 };
 
+// cl: 방향별 기본 여유 공간(mm, 0이면 검사 안 함). 가구마다 속성 패널에서 바꿀 수 있다.
+// wallCheck: 여유 공간이 벽에 막히면 경고할지(침대 측면은 벽에 붙여도 되므로 false).
 const KINDS = {
-  bed:     {label:'침대',   color:'#8fb3e0', zones:[{side:'left',depth:500,label:'접근',needFree:false},{side:'right',depth:500,label:'접근',needFree:false}]},
-  wardrobe:{label:'옷장',   color:'#c9a27e', zones:[{side:'front',depth:800,label:'문 개폐',needFree:true}]},
-  desk:    {label:'책상',   color:'#9ccf9c', zones:[{side:'front',depth:800,label:'의자',needFree:true}]},
-  shelf:   {label:'수납',   color:'#d4b483', zones:[{side:'front',depth:600,label:'사용',needFree:true}]},
-  sofa:    {label:'소파',   color:'#b8a4d6', zones:[{side:'front',depth:1200,label:'시청·통행',needFree:true}]},
-  chair:   {label:'의자',   color:'#e2c08d', zones:[]},
-  table:   {label:'식탁',   color:'#e8a87c', zones:[{side:'front',depth:750,label:'의자',needFree:true},{side:'back',depth:750,label:'의자',needFree:true},{side:'left',depth:750,label:'의자',needFree:true},{side:'right',depth:750,label:'의자',needFree:true}]},
-  tv:      {label:'TV',     color:'#555b66', zones:[]},
-  fridge:  {label:'냉장고', color:'#a8c5cf', zones:[{side:'front',depth:900,label:'문 개폐',needFree:true}]},
-  custom:  {label:'일반',   color:'#c4c4c4', zones:[]}
+  bed:     {label:'침대',   color:'#8fb3e0', zoneLabel:'접근',     wallCheck:false, cl:{front:0,back:0,left:500,right:500}},
+  wardrobe:{label:'옷장',   color:'#c9a27e', zoneLabel:'문 개폐',  wallCheck:true,  cl:{front:800,back:0,left:0,right:0}},
+  desk:    {label:'책상',   color:'#9ccf9c', zoneLabel:'의자',     wallCheck:true,  cl:{front:800,back:0,left:0,right:0}},
+  shelf:   {label:'수납',   color:'#d4b483', zoneLabel:'사용',     wallCheck:true,  cl:{front:600,back:0,left:0,right:0}},
+  sofa:    {label:'소파',   color:'#b8a4d6', zoneLabel:'시청·통행', wallCheck:true,  cl:{front:1200,back:0,left:0,right:0}},
+  chair:   {label:'의자',   color:'#e2c08d', zoneLabel:'여유',     wallCheck:false, cl:{front:0,back:0,left:0,right:0}},
+  table:   {label:'식탁',   color:'#e8a87c', zoneLabel:'의자',     wallCheck:true,  cl:{front:750,back:750,left:750,right:750}},
+  tv:      {label:'TV',     color:'#555b66', zoneLabel:'여유',     wallCheck:false, cl:{front:0,back:0,left:0,right:0}},
+  fridge:  {label:'냉장고', color:'#a8c5cf', zoneLabel:'문 개폐',  wallCheck:true,  cl:{front:900,back:0,left:0,right:0}},
+  custom:  {label:'일반',   color:'#c4c4c4', zoneLabel:'여유',     wallCheck:true,  cl:{front:0,back:0,left:0,right:0}}
 };
+const SIDES=['front','back','left','right'];
+const SIDE_KO={front:'앞',back:'뒤',left:'왼쪽',right:'오른쪽'};
+const DOOR_APPROACH=600; // 문 바깥쪽(여닫는 반대편) 통행 공간 mm
 
 const LIBRARY = [
   {cat:'침실 가구', items:[
@@ -351,8 +365,17 @@ function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
 function makeFurn(name,w,d,kind,x,y,rot){
   const k = KINDS[kind] ? kind : 'custom';
-  const z = KINDS[k].zones[0];
-  return {id:uid(), name, w, d, kind:k, x, y, rot:rot||0, clear: z ? z.depth : 0};
+  return {id:uid(), name, w, d, kind:k, x, y, rot:rot||0, cl:{...KINDS[k].cl}, wallCheck:KINDS[k].wallCheck, locked:false};
+}
+// 저장본·JSON 에서 읽은 가구를 현재 형식으로 맞춘다 (옛 형식의 clear 한 값도 변환)
+function normalizeFurn(f){
+  const k = KINDS[f.kind] ? f.kind : 'custom';
+  const n = makeFurn(f.name||KINDS[k].label, +f.w||1000, +f.d||600, k, +f.x||0, +f.y||0, +f.rot||0);
+  if(f.cl && typeof f.cl==='object'){ for(const sd of SIDES) n.cl[sd]=Math.max(0,+f.cl[sd]||0); }
+  else if(f.clear!=null){ for(const sd of SIDES) n.cl[sd]= KINDS[k].cl[sd]>0 ? Math.max(0,+f.clear||0) : 0; }
+  if(typeof f.wallCheck==='boolean') n.wallCheck=f.wallCheck;
+  n.locked=!!f.locked;
+  return n;
 }
 
 // ───────────────────────── 기하 유틸 ─────────────────────────
@@ -490,13 +513,13 @@ function analyze(){
   const res = {};
   const bodies = F.map(f=>({f, poly:furnPoly(f)}));
   for(const {f,poly} of bodies){
-    const r = {collide:[], wall:false, door:[], fixture:[], clearance:[], level:'ok', room:null};
+    const r = {collide:[], wall:false, door:[], doorApproach:[], fixture:[], clearance:[], level:'ok', room:null};
     // 소속 방: 중심이 들어 있는 방
     r.room = rooms.find(rm=>pointInRect(f.x,f.y,rm,0)) || null;
     if(!polyInsideRooms(poly, rooms, 15)) r.wall = true;
     for(const o of bodies){ if(o.f===f) continue; if(convexIntersect(poly,o.poly)) r.collide.push(o.f); }
     for(const fx of fixPolys){ if(convexIntersect(poly,fx.poly)) r.fixture.push(fx.name); }
-    for(const {d,g} of doorPolys){ if(convexIntersect(poly,g.poly)) r.door.push(d); }
+    for(const {d,g} of doorPolys){ if(convexIntersect(poly,g.poly)) r.door.push(d); else { const ap=doorApproachPoly(g, doorApproachDepth(d)); if(ap && convexIntersect(poly,ap)) r.doorApproach.push(d); } }
     // 여유 공간
     const zones = zonesOf(f);
     for(const z of zones){
@@ -509,14 +532,23 @@ function analyze(){
       if(hits.length||wallHit) r.clearance.push({zone:z, hits, wallHit});
     }
     if(r.collide.length||r.wall||r.door.length||r.fixture.length) r.level='red';
-    else if(r.clearance.length) r.level='orange';
+    else if(r.clearance.length||r.doorApproach.length) r.level='orange';
     res[f.id]=r;
   }
   return res;
 }
 function zonesOf(f){
   const k = KINDS[f.kind]||KINDS.custom;
-  return k.zones.map(z=>({...z, poly: zonePoly(f,z,f.clear)}));
+  const out=[];
+  for(const side of SIDES){ const depth=f.cl&&f.cl[side]; if(depth>0) out.push({side, depth, label:k.zoneLabel, needFree:!!f.wallCheck, poly:zonePoly(f,{side},depth)}); }
+  return out;
+}
+// 문 바깥쪽 통행 공간(여닫는 반대편): 문 폭 × DOOR_APPROACH
+function doorApproachDepth(d){ return (d.approach!=null && isFinite(+d.approach)) ? Math.max(0,+d.approach) : DOOR_APPROACH; }
+function doorApproachPoly(g, depth){
+  if(!(depth>0)) return null;
+  const dx=-g.dirIn[0]*depth, dy=-g.dirIn[1]*depth;
+  return [g.hinge, g.openEnd, [g.openEnd[0]+dx,g.openEnd[1]+dy], [g.hinge[0]+dx,g.hinge[1]+dy]];
 }
 
 // ───────────────────────── 렌더링 ─────────────────────────
@@ -583,6 +615,9 @@ function render(){
     svg.appendChild(el('line',{x1:g.hinge[0],y1:g.hinge[1],x2:g.leafEnd[0],y2:g.leafEnd[1],stroke:'#92400e','stroke-width':40}));
     // 문틀 개구부 (벽을 지움)
     svg.appendChild(el('line',{x1:g.hinge[0],y1:g.hinge[1],x2:g.openEnd[0],y2:g.openEnd[1],stroke:'var(--floor)','stroke-width':60}));
+    // 문 바깥쪽 통행 공간
+    const ap=doorApproachPoly(g, doorApproachDepth(d));
+    if(state.opts.clear && ap) svg.appendChild(el('polygon',{points:ap.map(p=>p.join(',')).join(' '), fill:'#f59e0b','fill-opacity':.08, stroke:'#d97706','stroke-width':8,'stroke-dasharray':'40 40', style:'pointer-events:none'}));
   }
   // 방 이름·치수
   for(const r of S.rooms){
@@ -610,9 +645,10 @@ function render(){
     let stroke = '#374151', fill = k.color;
     if(a.level==='red'){ stroke='#dc2626'; fill='#fca5a5'; }
     else if(a.level==='orange'){ stroke='#ea580c'; }
-    g.appendChild(el('rect',{x:-f.w/2,y:-f.d/2,width:f.w,height:f.d,fill,'fill-opacity':.85,stroke: sel?'#2563eb':stroke,'stroke-width': sel?36:18, rx:30}));
+    g.appendChild(el('rect',{x:-f.w/2,y:-f.d/2,width:f.w,height:f.d,fill,'fill-opacity':.85,stroke: sel?'#2563eb':stroke,'stroke-width': sel?36:18, rx:30, 'stroke-dasharray': f.locked?'90 50':null}));
+    if(f.locked){ g.setAttribute('class','furn locked'); const lk=Math.min(fs*0.8, Math.min(f.w,f.d)*0.5); g.appendChild(el('text',{x:f.w/2-lk*0.6,y:-f.d/2+lk*0.9,'font-size':lk,'text-anchor':'middle',fill:'#374151'},['🔒'])); }
     // 앞면 표시(앞면 = +y)
-    if(k.zones.length && f.kind!=='table') g.appendChild(el('line',{x1:-f.w/2+40,y1:f.d/2-40,x2:f.w/2-40,y2:f.d/2-40,stroke:'#1f2937','stroke-opacity':.5,'stroke-width':20}));
+    if(f.kind!=='table' && f.kind!=='chair' && f.kind!=='tv') g.appendChild(el('line',{x1:-f.w/2+40,y1:f.d/2-40,x2:f.w/2-40,y2:f.d/2-40,stroke:'#1f2937','stroke-opacity':.5,'stroke-width':20}));
     if(f.kind==='bed'){ g.appendChild(el('rect',{x:-f.w/2+80,y:-f.d/2+80,width:f.w-160,height:Math.min(400,f.d*0.2),fill:'#fff','fill-opacity':.6,rx:40})); }
     const upright = ((f.rot%360)+360)%360; const flip = upright>90 && upright<=270;
     const tg = el('g',{transform: flip?'rotate(180)':''});
@@ -620,7 +656,7 @@ function render(){
     const tfs = Math.min(fs*0.8, Math.max(f.w,f.d)/7);
     lines.forEach((t,i)=>{ tg.appendChild(el('text',{x:0,y:(i-(lines.length-1)/2)*tfs*1.15,'font-size':tfs,'text-anchor':'middle','dominant-baseline':'middle',fill:'#111827'},[t])); });
     g.appendChild(tg);
-    if(sel){
+    if(sel && !f.locked){
       const hs = Math.max(140, 9/ppm);
       for(const [sx,sy] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
         g.appendChild(el('rect',{class:'handle','data-h':`${sx},${sy}`,x:sx*f.w/2-hs/2,y:sy*f.d/2-hs/2,width:hs,height:hs,fill:'#fff',stroke:'#2563eb','stroke-width':hs*0.15}));
@@ -698,7 +734,7 @@ function updateStatus(){
   document.getElementById('stSel').textContent = f? `${f.name} ${fmt(f.w)}×${fmt(f.d)}mm` : '-';
   document.getElementById('stCount').textContent = state.furniture.length;
   let coll=0, wall=0, clr=0;
-  for(const id in analysis){ const a=analysis[id]; if(a.collide.length||a.fixture.length) coll++; if(a.wall||a.door.length) wall++; if(a.clearance.length) clr++; }
+  for(const id in analysis){ const a=analysis[id]; if(a.collide.length||a.fixture.length) coll++; if(a.wall||a.door.length) wall++; if(a.clearance.length||a.doorApproach.length) clr++; }
   const set=(id,n,cls)=>{ const e=document.getElementById(id); e.textContent=n; e.className = n? cls:'good'; };
   set('stColl',coll,'bad'); set('stWall',wall,'bad'); set('stClear',clr,'warn');
   renderFurnList();
@@ -772,6 +808,7 @@ svg.addEventListener('pointerdown', e=>{
   const f=state.furniture.find(x=>x.id===id); if(!f) return;
   if(state.selected!==id){ state.selected=id; render(); showProps(); }
   const before=deepClone(f);
+  if(f.locked){ return; } // 고정 가구: 선택만 하고 움직이지 않는다
   if(t.classList.contains('handle')){
     const [sx,sy]=t.getAttribute('data-h').split(',').map(Number);
     // 반대쪽 모서리를 고정점으로
@@ -828,7 +865,7 @@ svg.addEventListener('pointerup', endDrag);
 svg.addEventListener('pointercancel', endDrag);
 svg.addEventListener('dblclick', e=>{
   const g=e.target.closest && e.target.closest('.furn');
-  if(g){ const f=state.furniture.find(x=>x.id===g.getAttribute('data-id')); if(f){ rotateFurn(f,90); } }
+  if(g){ const f=state.furniture.find(x=>x.id===g.getAttribute('data-id')); if(f && !f.locked){ rotateFurn(f,90); } }
 });
 
 // ───────────────────────── 실행 취소 ─────────────────────────
@@ -846,8 +883,8 @@ document.getElementById('btnUndo').onclick=undo; document.getElementById('btnRed
 // ───────────────────────── 가구 조작 ─────────────────────────
 function addFurn(f, select){ state.furniture.push(f); if(select!==false) state.selected=f.id; commit(); render(); showProps(); return f; }
 function removeFurn(f){ state.furniture=state.furniture.filter(x=>x!==f); if(state.selected===f.id) state.selected=null; commit(); render(); showProps(); }
-function dupFurn(f){ const n={...deepClone(f), id:uid(), x:f.x+300, y:f.y+300}; addFurn(n); toast('복제했습니다'); }
-function rotateFurn(f,deg){ f.rot=(((f.rot+deg)%360)+360)%360; commit(); render(); showProps(); }
+function dupFurn(f){ const n={...deepClone(f), id:uid(), x:f.x+300, y:f.y+300, locked:false}; addFurn(n); toast('복제했습니다'); }
+function rotateFurn(f,deg){ if(f.locked){ toast('고정된 가구입니다'); return; } f.rot=(((f.rot+deg)%360)+360)%360; commit(); render(); showProps(); }
 function selectedFurn(){ return state.furniture.find(x=>x.id===state.selected); }
 
 document.addEventListener('keydown', e=>{
@@ -859,6 +896,7 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape'){ if(calib.active) cancelCalib(); state.selected=null; render(); showProps(); return; }
   if(!f) return;
   if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='d'){ e.preventDefault(); dupFurn(f); return; }
+  if(f.locked && !['Delete','Backspace'].includes(e.key)){ toast('고정된 가구입니다. 속성에서 고정을 풀면 움직일 수 있습니다'); return; }
   const step=(state.opts.snap||10)*(e.shiftKey?10:1);
   let moved=true;
   switch(e.key){
@@ -934,10 +972,13 @@ function showProps(full){
   if(!f) return;
   if(document.activeElement && document.activeElement.closest && document.activeElement.closest('#propPanel') && full===false) { /* 입력 중에는 값 덮어쓰지 않음 */ }
   else {
-    P('pName').value=f.name; P('pW').value=f.w; P('pD').value=f.d; P('pX').value=Math.round(f.x); P('pY').value=Math.round(f.y); P('pRot').value=f.rot; P('pClear').value=f.clear;
+    P('pName').value=f.name; P('pW').value=f.w; P('pD').value=f.d; P('pX').value=Math.round(f.x); P('pY').value=Math.round(f.y); P('pRot').value=f.rot; P('pLocked').checked=!!f.locked; P('pWallCheck').checked=!!f.wallCheck;
+    P('pClFront').value=f.cl.front; P('pClBack').value=f.cl.back; P('pClLeft').value=f.cl.left; P('pClRight').value=f.cl.right;
+    ['pW','pD','pX','pY','pRot','pRotL','pRotR','pRot90'].forEach(id=>P(id).disabled=!!f.locked);
   }
   const k=KINDS[f.kind]||KINDS.custom;
-  P('pKindInfo').textContent = `종류: ${k.label}` + (k.zones.length? ` · 여유 공간: ${k.zones.map(z=>({front:'앞',back:'뒤',left:'왼쪽',right:'오른쪽'})[z.side]+' '+z.label).join(', ')} (권장값, 법적 기준 아님)` : ' · 여유 공간 없음');
+  const zs=zonesOf(f);
+  P('pKindInfo').textContent = `종류: ${k.label}` + (zs.length? ` · 검사 중인 여유 공간: ${zs.map(z=>SIDE_KO[z.side]+' '+fmt(z.depth)).join(', ')} (${k.zoneLabel}, 권장값이며 법적 기준 아님)` : ' · 여유 공간 검사 없음') + (f.locked? ' · 위치 고정됨':'');
   const a=analysis[f.id]; const box=P('pIssues'); box.innerHTML='';
   const add=(cls,t)=>{ const d=document.createElement('div'); d.className='issue '+cls; d.textContent=t; box.appendChild(d); };
   if(a){
@@ -945,10 +986,10 @@ function showProps(full){
     for(const o of a.collide) add('red',`충돌: ${o.name}`);
     for(const n of a.fixture) add('red',`고정 설비와 겹침: ${n}`);
     for(const d of a.door) add('red',`방문 개폐 공간 침범 (${roomName(d.room)} 문)`);
+    for(const d of a.doorApproach) add('orange',`문 앞 통행 공간 침범 (${roomName(d.room)} 문 바깥쪽 ${fmt(doorApproachDepth(d))}mm)`);
     for(const c of a.clearance){
-      const side={front:'앞',back:'뒤',left:'왼쪽',right:'오른쪽'}[c.zone.side];
       const parts=[]; if(c.hits.length) parts.push(c.hits.join(', ')+'와 겹침'); if(c.wallHit) parts.push('벽에 막힘');
-      add('orange',`${side} ${c.zone.label} 공간 ${fmt(f.clear)}mm 부족: ${parts.join(' · ')}`);
+      add('orange',`${SIDE_KO[c.zone.side]} ${c.zone.label} 공간 ${fmt(c.zone.depth)}mm 부족: ${parts.join(' · ')}`);
     }
     if(!box.children.length) add('green','문제 없음' + (a.room? ` (${a.room.name})` : ' (방 밖)'));
   }
@@ -969,7 +1010,12 @@ bindProp('pD',(f,e)=>f.d=Math.max(50,+e.value||f.d));
 bindProp('pX',(f,e)=>f.x=+e.value||0);
 bindProp('pY',(f,e)=>f.y=+e.value||0);
 bindProp('pRot',(f,e)=>f.rot=(((+e.value||0)%360)+360)%360);
-bindProp('pClear',(f,e)=>f.clear=Math.max(0,+e.value||0));
+bindProp('pClFront',(f,e)=>f.cl.front=Math.max(0,+e.value||0));
+bindProp('pClBack',(f,e)=>f.cl.back=Math.max(0,+e.value||0));
+bindProp('pClLeft',(f,e)=>f.cl.left=Math.max(0,+e.value||0));
+bindProp('pClRight',(f,e)=>f.cl.right=Math.max(0,+e.value||0));
+bindProp('pWallCheck',(f,e)=>f.wallCheck=e.checked);
+bindProp('pLocked',(f,e)=>f.locked=e.checked);
 P('pRotL').onclick=()=>{const f=selectedFurn(); if(f) rotateFurn(f,-15);};
 P('pRotR').onclick=()=>{const f=selectedFurn(); if(f) rotateFurn(f,15);};
 P('pRot90').onclick=()=>{const f=selectedFurn(); if(f) rotateFurn(f,90);};
@@ -987,7 +1033,7 @@ function renderFurnList(){
       const a=analysis[f.id];
       const d=document.createElement('div'); d.style.cssText='cursor:pointer;padding:1px 4px;border-radius:4px;'+(f.id===state.selected?'background:#dbeafe;':'');
       const dot=a.level==='red'?'🔴':a.level==='orange'?'🟠':'🟢';
-      d.textContent=`${dot} ${f.name} ${f.w}×${f.d}`;
+      d.textContent=`${dot} ${f.locked?'🔒 ':''}${f.name} ${f.w}×${f.d}`;
       d.onclick=()=>{ state.selected=f.id; render(); showProps(); };
       box.appendChild(d);
     }
@@ -1037,7 +1083,7 @@ function renderStructTab(){
   });
   rt.querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>{ state.struct.rooms.splice(+b.dataset.del,1); afterStructChange(); });
   const dt=P('doorTable');
-  dt.innerHTML='<tr><th>방</th><th>벽</th><th>위치</th><th>폭</th><th>경첩</th><th>방향</th><th></th></tr>';
+  dt.innerHTML='<tr><th>방</th><th>벽</th><th>위치</th><th>폭</th><th>경첩</th><th>방향</th><th>앞 통행</th><th></th></tr>';
   const roomOpts=sel=>state.struct.rooms.map(r=>`<option value="${r.id}" ${r.id===sel?'selected':''}>${r.name}</option>`).join('');
   const opt=(arr,sel)=>arr.map(([v,l])=>`<option value="${v}" ${v===sel?'selected':''}>${l}</option>`).join('');
   state.struct.doors.forEach((d,i)=>{
@@ -1047,6 +1093,7 @@ function renderStructTab(){
       <td><input type="number" step="10" data-k="offset" value="${d.offset}"></td><td><input type="number" step="10" data-k="width" value="${d.width}" style="width:48px"></td>
       <td><select data-k="hinge" style="width:50px">${opt([['start','앞'],['end','뒤']],d.hinge)}</select></td>
       <td><select data-k="swing" style="width:50px">${opt([['in','안'],['out','밖']],d.swing)}</select></td>
+      <td><input type="number" step="50" data-k="approach" value="${doorApproachDepth(d)}" style="width:48px"></td>
       <td><button class="small danger" data-del="${i}">×</button></td>`;
     dt.appendChild(tr);
   });
@@ -1076,39 +1123,40 @@ function room(id){ return state.struct.rooms.find(r=>r.id===id); }
 function presetFurniture(which){
   // 방 좌표를 기준으로 계산. 치수 변경 시 자동 추적되지 않으므로 기본 구조 기준값으로 둔다.
   const F=[];
-  const add=(name,w,d,kind,x,y,rot)=>F.push(makeFurn(name,w,d,kind,x,y,rot));
-  // 침실1 (공통): 퀸 침대 + 서랍장
-  add('퀸 침대',1500,2000,'bed',11410,5740,0);
+  // opts: {cl:{...}} 방향별 여유 공간 덮어쓰기, {locked:true} 위치 고정
+  const add=(name,w,d,kind,x,y,rot,opts)=>{ const f=makeFurn(name,w,d,kind,x,y,rot); if(opts&&opts.cl) Object.assign(f.cl,opts.cl); if(opts&&opts.locked) f.locked=true; F.push(f); return f; };
+  // 침실1 (공통): 퀸 침대(오른쪽 벽에 붙임) + 서랍장
+  add('퀸 침대',1500,2000,'bed',11260,7080,90,{cl:{right:0}});
   add('서랍장',800,450,'shelf',9255,7330,270);
-  // 주방 (공통): 냉장고 + 4인 식탁 + 의자 4
-  add('냉장고',900,750,'fridge',8420,665,0);
+  // 주방 (공통): 냉장고(고정) + 4인 식탁 + 의자 4
+  add('냉장고',900,750,'fridge',8420,665,0,{locked:true});
   add('4인 식탁',1200,750,'table',7000,2900,0);
   add('식탁 의자',450,500,'chair',6700,2200,180); add('식탁 의자',450,500,'chair',7300,2200,180);
   add('식탁 의자',450,500,'chair',6700,3600,0);  add('식탁 의자',450,500,'chair',7300,3600,0);
   // 벽걸이 TV (공통): 거실 왼쪽 벽, 화면이 오른쪽(+x)을 향하도록
   add('벽걸이 TV',1200,80,'tv',5620,6400,270);
   if(which==='A'){
-    add('수납형 슈퍼싱글 침대',1100,2000,'bed',4000,7380,90);
-    add('붙박이장',1500,600,'wardrobe',3300,5490,270);
-    add('슈퍼싱글 침대',1100,2000,'bed',780,5740,0);
+    add('수납형 슈퍼싱글 침대',1100,2000,'bed',4000,7380,90,{cl:{right:0}});
+    add('붙박이장',1500,600,'wardrobe',3300,5490,270,{locked:true});
+    add('슈퍼싱글 침대',1100,2000,'bed',780,5740,0,{cl:{left:0}});
     add('2칸 옷장',1200,600,'wardrobe',2510,7230,90);
-    add('컴팩트 2.5인용 소파',1900,850,'sofa',8445,6350,90);
-    add('가족 공동 책상 1800',1800,600,'desk',7050,7630,180);
+    add('컴팩트 2.5인용 소파',1900,850,'sofa',8445,6560,90);
+    add('가족 공동 책상 1800',1800,600,'desk',6600,5100,0);
   } else if(which==='B'){
-    add('슈퍼싱글 침대',1100,2000,'bed',4000,7380,90);
+    add('슈퍼싱글 침대',1100,2000,'bed',4000,7380,90,{cl:{right:0}});
     add('2칸 옷장',1200,600,'wardrobe',3300,5340,270);
     add('어린이 책상',1000,550,'desk',4725,5950,90);
-    add('슈퍼싱글 침대',1100,2000,'bed',780,5740,0);
+    add('슈퍼싱글 침대',1100,2000,'bed',780,5740,0,{cl:{left:0}});
     add('2칸 옷장',1200,600,'wardrobe',2510,6130,90);
     add('소형 책상',1000,600,'desk',1700,7630,180);
-    add('3인용 소파',2100,900,'sofa',8420,6350,90);
+    add('3인용 소파',2100,900,'sofa',8420,6660,90);
   } else {
-    add('수납형 슈퍼싱글 침대',1100,2000,'bed',4000,7380,90);
-    add('붙박이장',1500,600,'wardrobe',3300,5490,270);
-    add('슈퍼싱글 침대',1100,2000,'bed',780,5740,0);
+    add('수납형 슈퍼싱글 침대',1100,2000,'bed',4000,7380,90,{cl:{right:0}});
+    add('붙박이장',1500,600,'wardrobe',3300,5490,270,{locked:true});
+    add('슈퍼싱글 침대',1100,2000,'bed',780,5740,0,{cl:{left:0}});
     add('2칸 옷장',1200,600,'wardrobe',2510,7230,90);
-    add('2인용 소파',1700,850,'sofa',8445,6350,90);
-    add('가족 공동 책상 1600',1600,600,'desk',6900,7630,180);
+    add('2인용 소파',1700,850,'sofa',8445,6560,90);
+    add('가족 공동 책상 1600',1600,600,'desk',6500,5100,0);
   }
   return F;
 }
@@ -1125,7 +1173,7 @@ function refreshScenarioSel(){
 function loadScenario(name){
   const saved=loadScenarios();
   state.scenario=name;
-  if(saved[name]){ state.furniture=saved[name].furniture.map(f=>({...f,id:uid()})); if(saved[name].struct) state.struct=saved[name].struct; if(saved[name].bg) state.bg=saved[name].bg; }
+  if(saved[name]){ state.furniture=saved[name].furniture.map(normalizeFurn); if(saved[name].struct) state.struct=saved[name].struct; if(saved[name].bg) state.bg=saved[name].bg; }
   else if(PRESETS[name]) state.furniture=presetFurniture(PRESETS[name]);
   else state.furniture=[];
   state.selected=null; undoStack.length=0; redoStack.length=0; commit.last=snapshot(); updateUndoButtons();
@@ -1173,11 +1221,11 @@ P('btnPng').onclick=()=>{
   img.src=url;
 };
 P('btnCsv').onclick=()=>{
-  const rows=[['이름','종류','가로W(mm)','세로D(mm)','회전(도)','X중심(mm)','Y중심(mm)','방','여유공간(mm)','상태','문제']];
+  const rows=[['이름','종류','가로W(mm)','세로D(mm)','회전(도)','X중심(mm)','Y중심(mm)','방','고정','여유공간 앞/뒤/왼/오(mm)','상태','문제']];
   for(const f of state.furniture){
     const a=analysis[f.id]; const probs=[];
-    if(a.wall) probs.push('벽체 침범'); a.collide.forEach(o=>probs.push('충돌:'+o.name)); a.fixture.forEach(n=>probs.push('설비:'+n)); a.door.forEach(d=>probs.push('문:'+roomName(d.room))); a.clearance.forEach(c=>probs.push('여유부족:'+c.zone.label));
-    rows.push([f.name, KINDS[f.kind].label, f.w, f.d, f.rot, Math.round(f.x), Math.round(f.y), a.room?a.room.name:'', f.clear, a.level==='red'?'문제':a.level==='orange'?'주의':'정상', probs.join(' / ')]);
+    if(a.wall) probs.push('벽체 침범'); a.collide.forEach(o=>probs.push('충돌:'+o.name)); a.fixture.forEach(n=>probs.push('설비:'+n)); a.door.forEach(d=>probs.push('문:'+roomName(d.room))); a.doorApproach.forEach(d=>probs.push('문앞통행:'+roomName(d.room))); a.clearance.forEach(c=>probs.push('여유부족:'+SIDE_KO[c.zone.side]));
+    rows.push([f.name, KINDS[f.kind].label, f.w, f.d, f.rot, Math.round(f.x), Math.round(f.y), a.room?a.room.name:'', f.locked?'Y':'', `${f.cl.front}/${f.cl.back}/${f.cl.left}/${f.cl.right}`, a.level==='red'?'문제':a.level==='orange'?'주의':'정상', probs.join(' / ')]);
   }
   const csv='﻿'+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   download(`55A_${safeName()}.csv`, new Blob([csv],{type:'text/csv;charset=utf-8'})); toast('CSV를 저장했습니다');
@@ -1191,7 +1239,7 @@ P('fileJson').addEventListener('change', e=>{
   const file=e.target.files[0]; if(!file) return;
   const rd=new FileReader(); rd.onload=()=>{
     try{ const d=JSON.parse(rd.result); if(!Array.isArray(d.furniture)) throw new Error('furniture 배열이 없습니다');
-      state.furniture=d.furniture.map(f=>({...makeFurn(f.name,f.w,f.d,f.kind,f.x,f.y,f.rot), clear: f.clear!=null? f.clear : (KINDS[f.kind]&&KINDS[f.kind].zones[0]? KINDS[f.kind].zones[0].depth:0)}));
+      state.furniture=d.furniture.map(normalizeFurn);
       if(d.struct) state.struct=d.struct; if(d.bg) state.bg=d.bg; if(d.scenario) state.scenario=d.scenario;
       state.selected=null; commit(); refreshScenarioSel(); render(); showProps(); syncBgInputs(); toast('JSON을 불러왔습니다');
     }catch(err){ alert('불러오기 실패: '+err.message); }
