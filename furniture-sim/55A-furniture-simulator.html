@@ -529,11 +529,12 @@ function el(tag, attrs, children){
   return e;
 }
 function fmt(n){ return Math.round(n).toLocaleString('ko-KR'); }
-function pxPerMm(){ return svg.clientWidth / state.view.w; }
+function pxPerMm(){ const m=svg.getScreenCTM(); return (m && m.a>0) ? m.a : svg.clientWidth / state.view.w; }
 let analysis = {};
 
 function render(){
   analysis = analyze();
+  syncViewAspect();
   const v = state.view;
   svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
   svg.setAttribute('preserveAspectRatio','xMidYMid meet');
@@ -636,6 +637,17 @@ function render(){
     const f=state.furniture.find(x=>x.id===state.selected);
     if(f) drawGaps(f, fs);
   }
+  // 축척 막대: 1m, 평면도와 같은 mm 단위로 그려서 해상도와 무관하게 도면과 일치
+  {
+    const barLen=1000, pad=24/ppm, bx=v.x+pad, by=v.y+v.h-pad, th=Math.max(40,4/ppm);
+    const g=el('g',{style:'pointer-events:none'});
+    g.appendChild(el('rect',{x:bx-pad*0.3,y:by-fs*1.4,width:barLen+pad*0.6,height:fs*1.4+th+pad*0.3,fill:'#fff','fill-opacity':.75,rx:fs*0.2}));
+    g.appendChild(el('rect',{x:bx,y:by-th,width:barLen,height:th,fill:'#111827'}));
+    g.appendChild(el('rect',{x:bx,y:by-th,width:barLen/2,height:th,fill:'#fff',stroke:'#111827','stroke-width':th*0.15}));
+    g.appendChild(el('text',{x:bx,y:by-th-fs*0.45,'font-size':fs*0.7,fill:'#111827'},['0']));
+    g.appendChild(el('text',{x:bx+barLen,y:by-th-fs*0.45,'font-size':fs*0.7,'text-anchor':'end',fill:'#111827'},['1 m']));
+    svg.appendChild(g);
+  }
   // 보정 모드 점
   if(calib.active){
     for(const p of calib.pts) svg.appendChild(el('circle',{cx:p[0],cy:p[1],r:Math.max(60,6/ppm),fill:'#ef4444',stroke:'#fff','stroke-width':20}));
@@ -681,7 +693,7 @@ function drawGaps(f, fs){
 }
 function updateStatus(){
   const ppm=pxPerMm();
-  document.getElementById('stScale').textContent = `1m = ${(ppm*1000).toFixed(0)}px (1px ≈ ${(1/ppm).toFixed(0)}mm)`;
+  document.getElementById('stScale').textContent = `1m = ${(ppm*1000).toFixed(0)}px · 1px ≈ ${(1/ppm).toFixed(0)}mm (CSS px 기준, 화면 배율 ${(window.devicePixelRatio||1).toFixed(2)}×)`;
   const f=state.furniture.find(x=>x.id===state.selected);
   document.getElementById('stSel').textContent = f? `${f.name} ${fmt(f.w)}×${fmt(f.d)}mm` : '-';
   document.getElementById('stCount').textContent = state.furniture.length;
@@ -720,7 +732,14 @@ svg.addEventListener('wheel', e=>{
 document.getElementById('zoomIn').onclick=()=>zoomAt(1/1.3, state.view.x+state.view.w/2, state.view.y+state.view.h/2);
 document.getElementById('zoomOut').onclick=()=>zoomAt(1.3, state.view.x+state.view.w/2, state.view.y+state.view.h/2);
 document.getElementById('zoomFit').onclick=fitView;
-window.addEventListener('resize', ()=>render());
+function syncViewAspect(){
+  const ar = svg.clientWidth/Math.max(1,svg.clientHeight); if(!isFinite(ar)||ar<=0) return;
+  const v=state.view; const cx=v.x+v.w/2, cy=v.y+v.h/2;
+  const cur=v.w/v.h; if(Math.abs(cur-ar)<1e-3) return;
+  if(cur<ar){ v.w=v.h*ar; } else { v.h=v.w/ar; }
+  v.x=cx-v.w/2; v.y=cy-v.h/2;
+}
+window.addEventListener('resize', ()=>{ syncViewAspect(); render(); });
 
 // ───────────────────────── 포인터 상호작용 ─────────────────────────
 let drag=null; // {mode, ...}
