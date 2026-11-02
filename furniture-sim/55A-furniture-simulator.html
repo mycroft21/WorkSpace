@@ -1095,7 +1095,7 @@ function presetFurniture(which){
 }
 const PRESETS={'A. 가족 공동 학습형':'A','B. 개별 학습형':'B','C. 거실 공간 우선형':'C'};
 function loadScenarios(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'{}'); }catch(e){ return {}; } }
-function saveScenarios(s){ localStorage.setItem(LS_KEY, JSON.stringify(s)); }
+function saveScenarios(s){ try{ localStorage.setItem(LS_KEY, JSON.stringify(s)); }catch(e){ toast('브라우저 저장소를 쓸 수 없습니다. JSON 저장을 이용하세요'); } }
 function scenarioNames(){ const s=loadScenarios(); return [...new Set([...Object.keys(PRESETS), ...Object.keys(s)])]; }
 function refreshScenarioSel(){
   const sel=P('scenarioSel'); sel.innerHTML='';
@@ -1121,7 +1121,17 @@ P('btnResetScenario').onclick=()=>{ if(!PRESETS[state.scenario]){ toast('기본 
 P('btnClear').onclick=()=>{ if(state.furniture.length && confirm('배치된 가구를 모두 지울까요?')){ state.furniture=[]; state.selected=null; commit(); render(); showProps(); } };
 
 // ───────────────────────── 내보내기 ─────────────────────────
-function download(name, blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }
+// 파일 저장: claude.ai 아티팩트 안에서는 downloads 기능으로, 단독 HTML에서는 브라우저 다운로드로
+let dlCap = null, dlCapReady = (window.claude && typeof window.claude.use==='function') ? window.claude.use('downloads').then(d=>{ dlCap=d; }).catch(()=>{}) : Promise.resolve();
+async function download(name, blob){
+  await dlCapReady;
+  if(dlCap){
+    try{ await dlCap.save({filename:name, data:blob}); }
+    catch(err){ if(err && err.code!=='declined') toast('저장 실패: '+(err.message||err.code||err)); }
+    return;
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);
+}
 function safeName(){ return state.scenario.replace(/[\\/:*?"<>|]/g,'_'); }
 P('btnPng').onclick=()=>{
   const prevSel=state.selected; state.selected=null; render();
